@@ -1,130 +1,100 @@
 #pragma once
 
-#include <assert.h>
-#include <chrono>
 #include <cstdint>
-#include <ctime>
-#include <iomanip>
-#include <sstream>
 #include <string>
 
+#if defined(_WIN32) || defined(_WIN64)  // Windows-specific macros
+#define PLATFORM_WINDOWS
+#else  // POSIX systems (Linux/macOS)
+#define PLATFORM_UNIX
+#endif
 
 namespace x {
+	namespace time {
 
-// unname Time , outside hidden
-namespace {
-class Time {
-public:
-  Time(uint64_t milliSecondsSinceEpoch = 0)
-      : milliSecondsSinceEpoch_(milliSecondsSinceEpoch) {}
+	class StampView {
+        public:
+            const uint16_t year;
+            const uint8_t month;
+            const uint8_t day;
+            const uint8_t hour;
+            const uint8_t minute;
+            const uint8_t second;
+            const uint16_t millisecond;
 
-  Time(const Time &t) : milliSecondsSinceEpoch_(t.milliSecondsSinceEpoch_) {}
+            std::string toString() const;
+        };
 
-  // you can compare TimeStamp with TimeStamp , not TimeStamp with TimeGap
-  bool operator<(const Time &t) const {
-    return milliSecondsSinceEpoch_ < t.milliSecondsSinceEpoch_;
-  }
+        class GapView {
+        public:
+            std::string toString() const;
+            
+            const uint16_t week;
+            const uint8_t day;
+            const uint8_t hour;
+            const uint8_t minute;
+            const uint8_t second;
+            const uint16_t millisecond;
 
-  bool operator>(const Time &t) const {
-    return milliSecondsSinceEpoch_ > t.milliSecondsSinceEpoch_;
-  }
+        };
 
-  bool operator>=(const Time &t) const {
-    return milliSecondsSinceEpoch_ >= t.milliSecondsSinceEpoch_;
-  }
+        class Gap;
 
-  bool operator<=(const Time &t) const {
-    return milliSecondsSinceEpoch_ <= t.milliSecondsSinceEpoch_;
-  }
+		class Stamp {
+        public:
+            static const uint64_t MIN_MILLISECONDS_SINCE_EPOCH; 
+            static const uint64_t MAX_MILLISECONDS_SINCE_EPOCH;
+            static const uint16_t MAX_YEAR;
+            static const uint16_t MIN_YEAR;
 
-  bool operator==(const Time &t) const {
-    return milliSecondsSinceEpoch_ == t.milliSecondsSinceEpoch_;
-  }
+            Stamp(const Stamp&);
+            static Stamp Now();
+            static Stamp DateTime(int year, int month, int day, int hour, int minute, int second, int millisecond);
 
-  bool operator!=(const Time &t) const { return !(*this == t); }
+            Gap operator-(const Stamp&) const;
+            Stamp operator+(const Gap&) const;
+            Stamp& operator+=(const Gap&);
+            Stamp operator-(const Gap&) const;
+            Stamp& operator-=(const Gap&);
 
-protected:
-  // in timestamp it means milliSecondsSinceEpoch , but int timegap , it means
-  // milliseconds
-  uint64_t milliSecondsSinceEpoch_;
+            StampView View()const;
+        protected:
+            friend class Gap;
+            Stamp()=delete;
+            Stamp(uint64_t);
+
+            uint64_t milliseconds_since_epoch;
+		};
+
+		class Gap {
+        public:
+            static const uint64_t MAX_MILLISECONDS;
+            static const uint16_t MAX_WEEK;
+
+            Gap(const Gap&);
+			static Gap Weeks(uint64_t);
+			static Gap Days(uint64_t);
+			static Gap Hours(uint64_t);
+			static Gap Minutes(uint64_t);
+			static Gap Seconds(uint64_t);
+			static Gap MilliSeconds(uint64_t);
+
+            Stamp operator+(const Stamp&)const;
+            Gap operator+(const Gap&) const;
+            Gap& operator+=(const Gap&);
+
+            GapView View()const;
+        protected:
+            friend class Stamp;
+            Gap()=delete;
+            Gap(uint64_t);
+
+            uint64_t milliseconds;
+		};
+
+        bool isValidDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond);
+
+	};
+
+
 };
-}; // namespace
-
-class TimeGap;
-
-class TimeStamp : public Time {
-public:
-  TimeStamp();
-  explicit TimeStamp(uint64_t milliSecondsSinceEpoch);
-
-  // a - b = b - a
-  TimeGap operator-(const TimeStamp &) const;
-
-  // timegap must small than timestamp
-  TimeStamp operator+(const TimeGap &) const;
-  TimeStamp &operator+=(const TimeGap &);
-  TimeStamp operator-(const TimeGap &) const;
-  TimeStamp &operator-=(const TimeGap &);
-
-  bool operator<(const TimeGap &) const = delete;
-  bool operator>(const TimeGap &) const = delete;
-  bool operator>=(const TimeGap &) const = delete;
-  bool operator<=(const TimeGap &) const = delete;
-  bool operator==(const TimeGap &) const = delete;
-  bool operator!=(const TimeGap &) const = delete;
-
-  // if is future or now time , it is valid
-  operator bool() const;
-
-  // return real date in correct range , like day in range [1,31]
-  int Day() const { return toTm().tm_mday; }
-  int Year() const { return toTm().tm_year + 1900; }
-  int Month() const { return toTm().tm_mon + 1; }
-  int Hour() const { return toTm().tm_hour; }
-  int Minute() const { return toTm().tm_min; }
-  int Second() const { return toTm().tm_sec; }
-  int MilliSecond() const { return milliSecondsSinceEpoch_ % 1000ULL; }
-
-  uint64_t MilliSecondsSinceEpoch() const;
-  std::string toString() const;
-  std::string toFormattedString() const;
-
-  static TimeStamp now();
-
-private:
-  std::tm toTm() const {
-    std::time_t seconds = milliSecondsSinceEpoch_ / 1000ULL;
-    std::tm tm;
-    gmtime_r(&seconds, &tm);
-    return tm;
-  }
-};
-
-// Gap永远大于0
-class TimeGap : public Time {
-public:
-  TimeGap(uint64_t milliseconds);
-  static TimeGap Week(int);
-  static TimeGap Day(int);
-  static TimeGap Hour(int);
-  static TimeGap Minute(int);
-  static TimeGap Second(int);
-  static TimeGap MilliSecond(int);
-
-  TimeGap operator+(const TimeGap &) const;
-  TimeGap &operator+=(const TimeGap &);
-  TimeGap operator-(const TimeGap &) const;
-  TimeGap &operator-=(const TimeGap &);
-
-  // if milliSecondsSinceEpoch_ = 0 , means invalid timegap
-  operator bool() const;
-
-  int Week() const;
-  int Day() const;
-  int Hour() const;
-  int Minute() const;
-  int Second() const;
-  int MilliSecond() const;
-};
-
-}; // namespace x
