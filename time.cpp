@@ -1,122 +1,232 @@
-#include "../include/time.h"
+#include "time.h"
+#include <chrono>
+#include <assert.h>
 
-x::TimeStamp::TimeStamp() {
-  auto now = std::chrono::system_clock::now();
-  auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
-                          now.time_since_epoch())
-                          .count();
-  milliSecondsSinceEpoch_ = milliseconds;
+// common
+
+//PASS
+static uint64_t sub(uint64_t a, uint64_t b) {
+    if (a >= b)return a - b;
+    return b - a;
 }
 
-x::TimeStamp x::TimeStamp::now() { return TimeStamp(); }
-
-x::TimeStamp::TimeStamp(uint64_t milliSecondsSinceEpoch)
-    : Time(milliSecondsSinceEpoch) {}
-
-x::TimeGap x::TimeStamp::operator-(const TimeStamp &t) const {
-  return TimeGap((milliSecondsSinceEpoch_ >= t.milliSecondsSinceEpoch_
-                      ? milliSecondsSinceEpoch_ - t.milliSecondsSinceEpoch_
-                      : t.milliSecondsSinceEpoch_ - milliSecondsSinceEpoch_));
+//PASS
+static uint64_t now_milliseconds_since_epoch() {
+	return std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::system_clock::now().time_since_epoch())
+		.count();
 }
 
-x::TimeStamp x::TimeStamp::operator+(const TimeGap &t) const {
-  assert(t.MilliSecond() < milliSecondsSinceEpoch_);
-  return TimeStamp(milliSecondsSinceEpoch_ + t.MilliSecond());
+//PASS
+static uint64_t DateTimeToMilliSeconds(int year, int month, int day, int hour, int minute, int second, int millisecond) {
+	assert(x::time::isValidDateTime(year, month, day, hour, minute, second, millisecond));
+    
+    std::tm tm;
+    tm.tm_year = year - 1900;
+    tm.tm_mon = month - 1;
+    tm.tm_mday = day;
+    tm.tm_hour = hour;
+    tm.tm_min = minute;
+    tm.tm_sec = second;
+
+    std::time_t timeSinceEpoch = mktime(&tm);
+    return timeSinceEpoch * 1000ULL + millisecond;
 }
 
-x::TimeStamp &x::TimeStamp::operator+=(const TimeGap &t) {
-  assert(t.MilliSecond() < milliSecondsSinceEpoch_);
-  milliSecondsSinceEpoch_ += t.MilliSecond();
-  return *this;
+//Windos PASS
+static std::tm MilliSecondstoTm(uint64_t  milliSecondsSinceEpoch_) {
+    std::time_t seconds = milliSecondsSinceEpoch_ / 1000ULL;
+    std::tm tm;
+
+#ifdef PLATFORM_WINDOWS
+    localtime_s(&tm, &seconds);  // Windows-safe version
+#elif defined(PLATFORM_UNIX)
+    localtime_r(&seconds, &tm);  // POSIX-safe version
+#endif
+
+    return tm;
 }
 
-x::TimeStamp &x::TimeStamp::operator-=(const TimeGap &t) {
-  assert(t.MilliSecond() < milliSecondsSinceEpoch_);
-  milliSecondsSinceEpoch_ -= t.MilliSecond();
-  return *this;
+//PASS
+bool x::time::isValidDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond)
+{
+    auto isValidDate = [](int year, int month, int day) {        
+		if (month == 2) {
+            if ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)) {
+                return day <= 29;             }
+            return day <= 28;        }
+        else if (month == 4 || month == 6 || month == 9 || month == 11) {
+            return day <= 30;        }
+        return day <= 31;        };
+
+    return (year <= x::time::Stamp::MAX_YEAR &&year >= x::time::Stamp::MIN_YEAR) && (1 <= month && month <= 12) && (1 <= day && day <= 31) && (0 <= hour && hour <= 23) && (0 <= minute && minute <= 59) &&(0<= second && second <=59)&& (0 <= millisecond && millisecond <= 999) && isValidDate(year, month, day);
 }
 
-x::TimeStamp x::TimeStamp::operator-(const TimeGap &t) const {
-  assert(t.MilliSecond() < milliSecondsSinceEpoch_);
-  return TimeStamp(milliSecondsSinceEpoch_ - t.MilliSecond());
+// Stamp construct
+// PASS
+
+const uint64_t x::time::Stamp::MIN_MILLISECONDS_SINCE_EPOCH = 0;
+const uint64_t x::time::Stamp::MAX_MILLISECONDS_SINCE_EPOCH =97858108799999; 
+const uint16_t x::time::Stamp::MAX_YEAR = 5000;
+const uint16_t x::time::Stamp::MIN_YEAR = 1900;
+
+x::time::Stamp::Stamp(uint64_t m):milliseconds_since_epoch(m){
+    assert(m <= MAX_MILLISECONDS_SINCE_EPOCH);
 }
 
-x::TimeStamp::operator bool() const { return *this >= TimeStamp(); }
-
-uint64_t x::TimeStamp::MilliSecondsSinceEpoch() const {
-  return milliSecondsSinceEpoch_;
+// PASS
+x::time::Stamp x::time::Stamp::Now()
+{
+	return Stamp(now_milliseconds_since_epoch());
 }
 
-std::string x::TimeStamp::toString() const {
-  std::ostringstream oss;
-  uint64_t seconds = milliSecondsSinceEpoch_ / 1000;
-  uint64_t milliseconds = milliSecondsSinceEpoch_ % 1000;
-  oss << seconds << "." << std::setw(3) << std::setfill('0') << milliseconds;
-  return oss.str();
+// PASS
+x::time::Stamp x::time::Stamp::DateTime(int year, int month, int day, int hour, int minute, int second, int millisecond)
+{
+	return Stamp(DateTimeToMilliSeconds(year,month,day,hour,minute,second,millisecond));
 }
 
-std::string x::TimeStamp::toFormattedString() const {
-  char buf[64];
-  std::time_t seconds = milliSecondsSinceEpoch_ / 1000;
-  int milliseconds = milliSecondsSinceEpoch_ % 1000;
-  std::tm tm_time;
-  gmtime_r(&seconds, &tm_time);
-
-  snprintf(buf, sizeof(buf), "%4d-%02d-%02d %02d:%02d:%02d.%03d",
-           tm_time.tm_year + 1900, tm_time.tm_mon + 1, tm_time.tm_mday,
-           tm_time.tm_hour, tm_time.tm_min, tm_time.tm_sec, milliseconds);
-  return buf;
+// PASS
+x::time::Stamp::Stamp(const Stamp& s):milliseconds_since_epoch(s.milliseconds_since_epoch){
+    assert(milliseconds_since_epoch <= MAX_MILLISECONDS_SINCE_EPOCH);
 }
 
-x::TimeGap::TimeGap(uint64_t milliseconds) : Time(milliseconds) {}
-
-x::TimeGap::operator bool() const { return milliSecondsSinceEpoch_ != 0; }
-
-x::TimeGap x::TimeGap::Week(int w) {
-  return TimeGap(7 * 24 * 3600 * w * 1000ULL);
+// Stamp op
+// 
+x::time::Gap x::time::Stamp::operator-(const Stamp& s)const {
+    return Gap(sub(milliseconds_since_epoch, s.milliseconds_since_epoch));
 }
 
-x::TimeGap x::TimeGap::Day(int d) { return TimeGap(24 * d * 3600 * 1000ULL); }
-x::TimeGap x::TimeGap::Hour(int h) { return TimeGap(h * 3600 * 1000ULL); }
-x::TimeGap x::TimeGap::Minute(int m) { return TimeGap(m * 60 * 1000ULL); }
-x::TimeGap x::TimeGap::Second(int s) { return TimeGap(s * 1000ULL); }
-x::TimeGap x::TimeGap::MilliSecond(int m) { return TimeGap(m); }
-
-int x::TimeGap::Week() const {
-  return milliSecondsSinceEpoch_ / 7 / 24 / 3600 / 1000;
+// PASS
+x::time::Stamp x::time::Stamp::operator+(const Gap& g) const {
+    assert( milliseconds_since_epoch <= MAX_MILLISECONDS_SINCE_EPOCH-g.milliseconds);
+    return Stamp(milliseconds_since_epoch + g.milliseconds);
 }
 
-int x::TimeGap::Day() const {
-  return milliSecondsSinceEpoch_ / 24 / 3600 / 1000;
+// PASS
+x::time::Stamp& x::time::Stamp::operator+=(const Gap& g) {
+    assert(milliseconds_since_epoch <= MAX_MILLISECONDS_SINCE_EPOCH - g.milliseconds);
+    milliseconds_since_epoch += g.milliseconds;
+    return *this;
 }
 
-int x::TimeGap::Hour() const { return milliSecondsSinceEpoch_ / 3600 / 1000; }
-
-int x::TimeGap::Minute() const { return milliSecondsSinceEpoch_ / 60 / 1000; }
-
-int x::TimeGap::Second() const { return milliSecondsSinceEpoch_ / 1000; }
-
-int x::TimeGap::MilliSecond() const { return milliSecondsSinceEpoch_; }
-
-x::TimeGap x::TimeGap::operator+(const TimeGap &t) const {
-  return TimeGap(milliSecondsSinceEpoch_ + t.milliSecondsSinceEpoch_);
+// PASS
+x::time::Stamp x::time::Stamp::operator-(const Gap& g) const {
+    assert(milliseconds_since_epoch >= g.milliseconds);
+    return Stamp(milliseconds_since_epoch - g.milliseconds);
 }
 
-x::TimeGap &x::TimeGap::operator+=(const TimeGap &t) {
-  milliSecondsSinceEpoch_ += t.milliSecondsSinceEpoch_;
-  return *this;
+// PASS
+x::time::Stamp& x::time::Stamp::operator-=(const Gap& g) {
+    assert(milliseconds_since_epoch >= g.milliseconds);
+    milliseconds_since_epoch -= g.milliseconds;
+    return *this;
 }
 
-x::TimeGap x::TimeGap::operator-(const TimeGap &t) const {
-  return TimeGap((milliSecondsSinceEpoch_ >= t.milliSecondsSinceEpoch_
-                      ? (milliSecondsSinceEpoch_ - t.milliSecondsSinceEpoch_)
-                      : t.milliSecondsSinceEpoch_ - milliSecondsSinceEpoch_));
+// PASS
+x::time::StampView x::time::Stamp::View()const {
+    auto tm = MilliSecondstoTm(milliseconds_since_epoch);
+    return {
+        static_cast<uint16_t>(tm.tm_year + 1900),
+        static_cast<uint8_t>(tm.tm_mon + 1),
+        static_cast<uint8_t>(tm.tm_mday),
+        static_cast<uint8_t>(tm.tm_hour),
+        static_cast<uint8_t>(tm.tm_min),
+        static_cast<uint8_t>(tm.tm_sec),
+        static_cast<uint16_t>(milliseconds_since_epoch % 1000)
+    };
 }
 
-x::TimeGap &x::TimeGap::operator-=(const TimeGap &t) {
-  (milliSecondsSinceEpoch_ >= t.milliSecondsSinceEpoch_
-       ? (milliSecondsSinceEpoch_ - t.milliSecondsSinceEpoch_)
-       : t.milliSecondsSinceEpoch_ - milliSecondsSinceEpoch_);
 
-  return *this;
+// gap construct
+const uint64_t x::time::Gap::MAX_MILLISECONDS = 1210694400000;
+const uint16_t x::time::Gap::MAX_WEEK = 2003;
+
+// PASS
+x::time::Gap::Gap(uint64_t m):milliseconds(m){
+    assert(m <= MAX_MILLISECONDS);
+}
+
+// PASS
+x::time::Gap::Gap(const Gap&g):milliseconds(g.milliseconds){
+    assert(g.milliseconds <= MAX_MILLISECONDS);
+}
+
+// gap factory construct
+// PASS
+x::time::Gap x::time::Gap::MilliSeconds(uint64_t m)
+{
+    return Gap(m);
+}
+
+// PASS
+x::time::Gap x::time::Gap::Seconds(uint64_t s)
+{
+    return Gap(s*1000ULL);
+}
+
+// PASS
+x::time::Gap x::time::Gap::Minutes(uint64_t m)
+{
+    return Gap(m * 60 * 1000ULL);
+}
+
+// PASS
+x::time::Gap x::time::Gap::Hours(uint64_t h) {
+    return Gap(h * 60 * 60 * 1000ULL);
+}
+
+// PASS
+x::time::Gap x::time::Gap::Days(uint64_t d) {
+    return Gap(d * 24 * 60 * 60 * 1000ULL);
+}
+
+// PASS
+x::time::Gap x::time::Gap::Weeks(uint64_t w) {
+    return Gap(w * 7 * 24 * 60 * 60 * 1000ULL);
+}
+
+// PASS
+x::time::Stamp x::time::Gap::operator+(const Stamp&s)const {
+    assert(milliseconds <= Stamp::MAX_MILLISECONDS_SINCE_EPOCH - s.milliseconds_since_epoch);
+    return Stamp(milliseconds + s.milliseconds_since_epoch);
+}
+
+// PASS
+x::time::Gap x::time::Gap::operator+(const Gap& g) const {
+    assert(milliseconds <= MAX_MILLISECONDS - g.milliseconds);
+    return Gap(milliseconds + g.milliseconds);
+}
+
+// PASS
+x::time::Gap& x::time::Gap::operator+=(const Gap& g) {
+    assert(milliseconds <= MAX_MILLISECONDS - g.milliseconds);
+    milliseconds += g.milliseconds;
+    return *this;
+}
+
+// PASS
+x::time::GapView x::time::Gap::View()const {
+    uint64_t remainingTime = milliseconds;
+    uint16_t weeks = remainingTime / (24ULL * 7 * 3600 * 1000);
+    remainingTime %= (24ULL * 7 * 3600 * 1000);
+    uint8_t days = remainingTime / (24ULL * 3600 * 1000);
+    remainingTime %= (24ULL * 3600 * 1000);
+    uint8_t hours = remainingTime / (3600 * 1000);
+    remainingTime %= (3600 * 1000);
+    uint8_t minutes = remainingTime / (60 * 1000);
+    remainingTime %= (60 * 1000);
+    uint8_t seconds = remainingTime / 1000; remainingTime %= 1000;
+    uint16_t milliseconds_ = remainingTime;
+    return { weeks, days, hours, minutes, seconds, milliseconds_ };
+}
+
+std::string x::time::StampView::toString() const
+{
+    std::ostringstream oss; oss << std::setw(4) << std::setfill('0') << year << "-" << std::setw(2) << std::setfill('0') << static_cast<uint16_t>(month) << "-" << std::setw(2) << std::setfill('0') << static_cast<uint16_t>(day) << " " << std::setw(2) << std::setfill('0') << static_cast<uint16_t>(hour) << ":" << std::setw(2) << std::setfill('0') << static_cast<uint16_t>(minute) << ":" << std::setw(2) << std::setfill('0') << static_cast<uint16_t>(second) << "." << std::setw(3) << std::setfill('0') << millisecond; return oss.str();
+}
+
+std::string x::time::GapView::toString() const
+{
+    std::ostringstream oss; oss << week << "w" << std::setw(1) << static_cast<uint16_t>(day) << "d" << std::setw(2) << std::setfill('0') << static_cast<uint16_t>(hour) << "h" << std::setw(2) << std::setfill('0') << static_cast<uint16_t>(minute) << "m" << std::setw(2) << std::setfill('0') << static_cast<uint16_t>(second) << "s" << std::setw(3) << std::setfill('0') << millisecond << "ms"; return oss.str(); 
 }
